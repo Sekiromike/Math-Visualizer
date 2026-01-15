@@ -1,0 +1,62 @@
+:root {
+    /* --- Cyber-Academia Palette --- */
+    --bg-app: #0a0a0f;
+    --bg-panel: rgba(20, 20, 28, 0.7);
+    --bg-glass: rgba(30, 30, 40, 0.4);
+    
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0b0;
+    --text-accent: #00f0ff; /* Neon Cyan */
+    
+    --border-glass: rgba(255, 255, 255, 0.1);
+    --border-neon: rgba(0, 240, 255, 0.3);
+
+    --accent-cyan: #00f0ff;
+    --accent-purple: #bd00ff;
+    --accent-amber: #ffbd00;
+    --accent-error: #ff3366;
+
+    /* --- Typography --- */
+    --font-heading: 'Outfit', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    
+    --fs-h1: 3.5rem;
+    --fs-h2: 2.5rem;
+    --fs-h3: 1.75rem;
+    --fs-body: 1rem;
+    --fs-small: 0.875rem;
+
+    /* --- Spacing --- */
+    --space-xs: 0.5rem;
+    --space-sm: 1rem;
+    --space-md: 1.5rem;
+    --space-lg: 2rem;
+    --space-xl: 4rem;
+
+    /* --- Effects --- */
+    --blur-glass: 20px;
+    --shadow-soft: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    --glow-cyan: 0 0 10px rgba(0, 240, 255, 0.5);
+    
+    /* --- Transitions --- */
+    --ease-elastic: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+    --duration-fast: 0.2s;
+    --duration-md: 0.5s;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: var(--bg-app);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--bg-glass);
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-cyan);
+}
