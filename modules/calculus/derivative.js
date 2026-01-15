@@ -1,6 +1,6 @@
 import { VizHub } from '../../js/viz-engine.js';
 
-export function render(container) {
+export function render(container, uniqueId) {
     const template = `
         <div class="professor-container fade-in">
             <div class="professor-avatar"></div>
@@ -14,15 +14,15 @@ export function render(container) {
 
         <div class="card-glass fade-in" style="animation-delay: 0.1s">
             <h2>Instantaneous Rate of Change</h2>
-            <div id="viz-derivative" class="viz-container"></div>
+            <div id="viz-derivative-${uniqueId}" class="viz-container"></div>
             
             <div class="controls-panel">
                 <div class="control-group">
-                    <label>Position (x): <span id="val-x" class="text-accent">0.00</span></label>
-                    <input type="range" id="input-x" min="-3" max="3" step="0.01" value="0">
+                    <label>Position (x): <span id="val-x-${uniqueId}" class="text-accent">0.00</span></label>
+                    <input type="range" id="input-x-${uniqueId}" min="-3" max="3" step="0.01" value="0">
                 </div>
                 <div class="control-group">
-                    <label>Slope (dy/dx): <span id="val-slope" class="text-accent">?</span></label>
+                    <label>Slope (dy/dx): <span id="val-slope-${uniqueId}" class="text-accent">?</span></label>
                 </div>
             </div>
         </div>
@@ -30,7 +30,7 @@ export function render(container) {
     container.innerHTML = template;
 
     // --- Visualization Logic ---
-    const viz = new VizHub('viz-derivative');
+    const viz = new VizHub(`viz-derivative-${uniqueId}`);
     const { xScale, yScale } = viz.createCartesianGrid([-4, 4], [-10, 10]);
 
     // Function: f(x) = x^3 - 3x (Classic cubic with peaks/valleys)
@@ -60,8 +60,17 @@ export function render(container) {
         const slope = df(x);
 
         // Update Text
-        document.getElementById('val-x').textContent = parseFloat(x).toFixed(2);
-        document.getElementById('val-slope').textContent = slope.toFixed(2);
+        const valX = document.getElementById(`val-x-${uniqueId}`);
+        const valSlope = document.getElementById(`val-slope-${uniqueId}`);
+
+        if (valX) valX.textContent = parseFloat(x).toFixed(2);
+        if (valSlope) {
+            valSlope.textContent = slope.toFixed(2);
+            // Dynamic slope coloring
+            const slopeColor = slope > 0 ? "#00f0ff" : (slope < 0 ? "#ff3366" : "#ffffff");
+            valSlope.style.color = slopeColor;
+            tangentLine.attr("stroke", slopeColor);
+        }
 
         // Update Point
         point
@@ -69,7 +78,6 @@ export function render(container) {
             .attr("cy", yScale(y));
 
         // Update Tangent Line (draw a segment around x)
-        // Line equation: Y - y = m(X - x) => Y = m(X - x) + y
         const delta = 2; // Length of line segment in x-units
         const x1 = parseFloat(x) - delta;
         const x2 = parseFloat(x) + delta;
@@ -81,18 +89,16 @@ export function render(container) {
             .attr("y1", yScale(y1))
             .attr("x2", xScale(x2))
             .attr("y2", yScale(y2));
-
-        // Dynamic slope coloring
-        const slopeColor = slope > 0 ? "#00f0ff" : (slope < 0 ? "#ff3366" : "#ffffff");
-        document.getElementById('val-slope').style.color = slopeColor;
-        tangentLine.attr("stroke", slopeColor);
     };
 
     // Initial State
     update(0);
 
     // Event Listener
-    document.getElementById('input-x').addEventListener('input', (e) => {
-        update(e.target.value);
-    });
+    const inputX = document.getElementById(`input-x-${uniqueId}`);
+    if (inputX) {
+        inputX.addEventListener('input', (e) => {
+            update(e.target.value);
+        });
+    }
 }

@@ -1,6 +1,6 @@
 import { VizHub } from '../../js/viz-engine.js';
 
-export function render(container) {
+export function render(container, uniqueId) {
     const template = `
         <div class="professor-container fade-in">
             <div class="professor-avatar"></div>
@@ -14,12 +14,12 @@ export function render(container) {
 
         <div class="card-glass fade-in" style="animation-delay: 0.1s">
             <h2>Linear Transformation: Av = λv</h2>
-            <div id="viz-eigen" class="viz-container"></div>
+            <div id="viz-eigen-${uniqueId}" class="viz-container"></div>
             
             <div class="controls-panel">
                 <div class="control-group">
-                    <label>Vector Angle (θ): <span id="val-angle" class="text-accent">0°</span></label>
-                    <input type="range" id="input-angle" min="0" max="360" step="1" value="0">
+                    <label>Vector Angle (θ): <span id="val-angle-${uniqueId}" class="text-accent">0°</span></label>
+                    <input type="range" id="input-angle-${uniqueId}" min="0" max="360" step="1" value="0">
                 </div>
                 <div class="control-group" style="margin-left: auto;">
                     <div style="font-family: monospace; font-size: 1.2rem;">
@@ -31,13 +31,13 @@ export function render(container) {
                     </div>
                 </div>
             </div>
-            <div id="status-msg" style="margin-top: 10px; height: 20px; font-weight: bold; color: var(--accent-amber)"></div>
+            <div id="status-msg-${uniqueId}" style="margin-top: 10px; height: 20px; font-weight: bold; color: var(--accent-amber)"></div>
         </div>
     `;
     container.innerHTML = template;
 
     // --- Visualization Logic ---
-    const viz = new VizHub('viz-eigen');
+    const viz = new VizHub(`viz-eigen-${uniqueId}`);
     const { xScale, yScale } = viz.createCartesianGrid([-5, 5], [-5, 5]);
 
     // Matrix A = [[2, 1], [1, 2]] (Symmetric, eigenvalues 3 and 1)
@@ -76,7 +76,8 @@ export function render(container) {
         const v = { x: Math.cos(rad), y: Math.sin(rad) }; // Unit vector
         const Av = transform(v);
 
-        document.getElementById('val-angle').textContent = angleDeg + "°";
+        const valAngle = document.getElementById(`val-angle-${uniqueId}`);
+        if (valAngle) valAngle.textContent = angleDeg + "°";
 
         // Update v
         vArrow.select("line")
@@ -103,18 +104,24 @@ export function render(container) {
         const cross = v.x * Av.y - v.y * Av.x;
         const isEigen = Math.abs(cross) < 0.1;
 
-        if (isEigen) {
-            document.getElementById('status-msg').textContent = "EIGENVECTOR FOUND! (Scale Factor λ approx " + (Math.sqrt(Av.x ** 2 + Av.y ** 2)).toFixed(1) + ")";
-            AvArrow.select("line").attr("stroke-width", 6);
-        } else {
-            document.getElementById('status-msg').textContent = "";
-            AvArrow.select("line").attr("stroke-width", 3);
+        const statusMsg = document.getElementById(`status-msg-${uniqueId}`);
+        if (statusMsg) {
+            if (isEigen) {
+                statusMsg.textContent = "EIGENVECTOR FOUND! (Scale Factor λ approx " + (Math.sqrt(Av.x ** 2 + Av.y ** 2)).toFixed(1) + ")";
+                AvArrow.select("line").attr("stroke-width", 6);
+            } else {
+                statusMsg.textContent = "";
+                AvArrow.select("line").attr("stroke-width", 3);
+            }
         }
     };
 
     update(0);
 
-    document.getElementById('input-angle').addEventListener('input', (e) => {
-        update(e.target.value);
-    });
+    const inputAngle = document.getElementById(`input-angle-${uniqueId}`);
+    if (inputAngle) {
+        inputAngle.addEventListener('input', (e) => {
+            update(e.target.value);
+        });
+    }
 }
