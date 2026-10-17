@@ -1,4 +1,8 @@
-version: '3.8'
+x-llm-env: &llm-env
+  REDIS_URL: redis://redis:6379
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy}
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://host.docker.internal:11434/v1}
+  OPENAI_MODEL_NAME: ${OPENAI_MODEL_NAME:-qwen2.5-coder}
 
 services:
   backend:
@@ -7,37 +11,53 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-dummy}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://host.docker.internal:11434/v1}
-      - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-qwen2.5-coder}
+    environment: *llm-env
+    # Lets the containers reach Ollama on the host on Linux (built in on Docker Desktop).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
   worker:
     build: ./backend
     command: rq worker high default low --url redis://redis:6379
     volumes:
       - ./backend:/app
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-dummy}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://host.docker.internal:11434/v1}
-      - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-qwen2.5-coder}
+    environment: *llm-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
   redis:
     image: redis:alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   frontend:
-    image: node:18-alpine
+    image: node:20-alpine
     working_dir: /app
-    command: npm run dev
+    # node_modules lives in a named volume so the host never needs (or pollutes) it.
+    command: sh -c "npm install --no-audit --no-fund && npm run dev -- -H 0.0.0.0"
     volumes:
       - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  frontend_node_modules:
+  frontend_next:

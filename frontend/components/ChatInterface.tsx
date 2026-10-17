@@ -1,6 +1,6 @@
 "use client";
-import React, { useState, useEffect, useRef } from 'react';
-import { Send, RefreshCw, AlertCircle, Settings, PlayCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Send, RefreshCw, AlertCircle, PlayCircle } from 'lucide-react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -23,7 +23,16 @@ interface Message {
     animations?: Animation[];
 }
 
-const API_Base = "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+const errorMessage = (e: unknown): string => {
+    if (axios.isAxiosError(e)) {
+        const detail = e.response?.data?.detail;
+        if (detail) return typeof detail === 'string' ? detail : JSON.stringify(detail);
+        return e.message;
+    }
+    return String(e);
+};
 
 export default function ChatInterface() {
     const [messages, setMessages] = useState<Message[]>([
@@ -42,52 +51,68 @@ export default function ChatInterface() {
         scrollToBottom();
     }, [messages]);
 
+    // Patch one animation by id. Always works on the latest state (never a stale copy), so
+    // messages added while a request was in flight are not lost; no-ops don't re-render.
+    const patchAnimation = useCallback((id: string, patch: Partial<Animation>) => {
+        setMessages(prev => {
+            let changed = false;
+            const next = prev.map(msg => {
+                if (!msg.animations?.some(a => a.id === id)) return msg;
+                changed = true;
+                return { ...msg, animations: msg.animations.map(a => a.id === id ? { ...a, ...patch } : a) };
+            });
+            return changed ? next : prev;
+        });
+    }, []);
+
+    // Ids still rendering. Kept as a string so the polling effect only restarts when this set changes.
+    const activeIds = messages.flatMap(m => m.animations || [])
+        .filter(a => a.status === 'queued' || a.status === 'rendering')
+        .map(a => a.id)
+        .join(',');
+
     // Polling for animation status
     useEffect(() => {
-        const interval = setInterval(async () => {
-            const activeAnimations: Animation[] = messages.flatMap(m => m.animations || [])
-                .filter(a => a.status === 'queued' || a.status === 'rendering');
+        if (!activeIds) return;
+        const ids = activeIds.split(',');
+        let cancelled = false;
+        let inFlight = false;
 
-            if (activeAnimations.length === 0) return;
-
-            const newMessages = [...messages];
-            let changed = false;
-
-            for (const anim of activeAnimations) {
-                try {
-                    const res = await axios.get(`${API_Base}/render/status/${anim.id}`);
-                    if (res.data.status !== anim.status) {
-                        // Update status
-                        for (const msg of newMessages) {
-                            if (!msg.animations) continue;
-                            const target = msg.animations.find(a => a.id === anim.id);
-                            if (target) {
-                                target.status = res.data.status;
-                                if (res.data.video_url) {
-                                    let url = res.data.video_url;
-                                    if (url && url.startsWith('/')) {
-                                        url = `${API_Base}${url}`;
-                                    }
-                                    target.video_url = url;
-                                }
-                                target.error = res.data.error;
-                                changed = true;
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error("Poll error", e);
+        const pollOne = async (id: string) => {
+            try {
+                const { data } = await axios.get(`${API_BASE}/render/status/${id}`);
+                if (cancelled) return;
+                if (data.status === 'completed' && data.video_url) {
+                    const url: string = data.video_url;
+                    patchAnimation(id, { status: 'completed', video_url: url.startsWith('/') ? `${API_BASE}${url}` : url, error: undefined });
+                } else if (data.status === 'failed') {
+                    patchAnimation(id, { status: 'failed', error: data.error });
+                } else if (data.status === 'not_found') {
+                    patchAnimation(id, { status: 'failed', error: 'This render job expired or was lost. Try again.' });
+                } else if (data.status === 'rendering') {
+                    patchAnimation(id, { status: 'rendering' });
                 }
+            } catch (e) {
+                console.error("Poll error", e);
             }
+        };
 
-            if (changed) {
-                setMessages(newMessages);
+        const poll = async () => {
+            if (inFlight) return;
+            inFlight = true;
+            try {
+                await Promise.all(ids.map(pollOne));
+            } finally {
+                inFlight = false;
             }
+        };
 
-        }, 2000);
-
-        return () => clearInterval(interval);
-    }, [messages]);
+        const interval = setInterval(poll, 2000);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+    }, [activeIds, patchAnimation]);
 
     const sendMessage = async () => {
         if (!input.trim() || loading) return;
@@ -100,7 +125,7 @@ export default function ChatInterface() {
         try {
             const history = messages.map(m => ({ role: m.role, content: m.content }));
 
-            const res = await axios.post(`${API_Base}/chat`, {
+            const res = await axios.post(`${API_BASE}/chat`, {
                 message: userMsg.content,
                 conversation_history: history,
                 quality: quality
@@ -108,9 +133,14 @@ export default function ChatInterface() {
 
             const data = res.data;
 
+            const questions: string[] = data.questions || [];
+            const followUps = questions.length
+                ? `\n\n**Think about it:**\n${questions.map(q => `- ${q}`).join('\n')}`
+                : '';
+
             const aiMsg: Message = {
                 role: 'assistant',
-                content: data.reply,
+                content: (data.reply || '') + followUps,
                 animations: data.animations || []
             };
 
@@ -118,56 +148,32 @@ export default function ChatInterface() {
 
         } catch (e) {
             console.error(e);
-            setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I encountered an error connecting to the tutor backend." }]);
+            setMessages(prev => [...prev, { role: 'assistant', content: `Sorry, I couldn't get a response from the tutor backend (${errorMessage(e)}).` }]);
         } finally {
             setLoading(false);
         }
     };
 
+    const regenerating = useRef<Set<string>>(new Set());
+
     const regenerateAnimation = async (anim: Animation) => {
-        if (!anim.scene_spec) return;
+        if (!anim.scene_spec || regenerating.current.has(anim.id)) return;
+        regenerating.current.add(anim.id);
 
         try {
-            // Set status to queued in UI
-            setMessages(prev => prev.map(msg => {
-                if (!msg.animations) return msg;
-                return {
-                    ...msg,
-                    animations: msg.animations.map(a => {
-                        if (a.id === anim.id) {
-                            return { ...a, status: 'queued', error: undefined };
-                        }
-                        return a;
-                    })
-                };
-            }));
-
-            // Call Render API
-            const res = await axios.post(`${API_Base}/render`, {
+            const res = await axios.post(`${API_BASE}/render`, {
                 scene_spec: anim.scene_spec,
                 duration: anim.duration || 15,
                 quality: quality
             });
 
-            // Update ID to new job ID (so we poll the new job)
-            const newJobId = res.data.job_id;
-
-            setMessages(prev => prev.map(msg => {
-                if (!msg.animations) return msg;
-                return {
-                    ...msg,
-                    animations: msg.animations.map(a => {
-                        if (a.id === anim.id) {
-                            return { ...a, id: newJobId };
-                        }
-                        return a;
-                    })
-                };
-            }));
-
+            // Switch to the new job id and status in one update so the old job is never polled again.
+            patchAnimation(anim.id, { id: res.data.job_id, status: 'queued', video_url: undefined, error: undefined });
         } catch (e) {
             console.error("Regenerate failed", e);
-            // Restore status to failed or whatever
+            patchAnimation(anim.id, { status: 'failed', error: errorMessage(e) });
+        } finally {
+            regenerating.current.delete(anim.id);
         }
     };
 
@@ -223,6 +229,8 @@ export default function ChatInterface() {
                                                 controls
                                                 loop
                                                 autoPlay
+                                                muted
+                                                playsInline
                                                 className="w-full rounded-lg shadow-2xl border border-gray-700"
                                             />
                                             <div className="flex justify-end">
@@ -264,7 +272,7 @@ export default function ChatInterface() {
                     </div>
                 ))}
                 {loading && (
-                    <div className="flex justify-start animate-fade-in">
+                    <div className="flex justify-start">
                         <div className="p-4 bg-gray-800 rounded-2xl rounded-tl-none border border-gray-700 shadow-sm">
                             <div className="flex gap-1.5">
                                 <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -282,7 +290,9 @@ export default function ChatInterface() {
                     className="flex-1 bg-gray-900 text-white rounded-xl px-5 py-3 outline-none focus:ring-2 focus:ring-blue-600 border border-gray-700 placeholder-gray-500 transition-all font-medium"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) sendMessage();
+                    }}
                     placeholder="Ask a math question..."
                 />
                 <button

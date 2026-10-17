@@ -1,7 +1,8 @@
 fastapi
 uvicorn
 redis
-rq
+rq>=2.0
 openai
 pydantic
 python-dotenv
+manim

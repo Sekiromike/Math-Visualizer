@@ -57,7 +57,7 @@ Run the application using Docker Compose. This will build the backend, worker, a
 ```bash
 docker-compose up --build
 ```
-*Note: The first build may take a few minutes to download the Manim and PyTorch dependencies.*
+*Note: The first build takes a few minutes (it installs LaTeX, ffmpeg and Manim), and the first start of the `frontend` container runs `npm install`, so give it a minute before opening the page.*
 
 ### 3. Use the App
 
@@ -86,7 +86,33 @@ docker-compose logs worker
 The system tries to auto-fix code errors, but sometimes the LLM hallucinates libraries not present in the container.
 
 **Ollama Connection Refused**
-Ensure Ollama is running (`ollama serve`). If you are on Linux, you might need to use `http://172.17.0.1:11434/v1` instead of `host.docker.internal` in your `.env`.
+Ensure Ollama is running (`ollama serve`). The containers reach it through `host.docker.internal` (mapped for you in `docker-compose.yml`, also on Linux). On Linux, Ollama listens on `127.0.0.1` by default, which containers cannot reach: start it with `OLLAMA_HOST=0.0.0.0` (for the systemd service: `sudo systemctl edit ollama` and add `Environment="OLLAMA_HOST=0.0.0.0"`).
+
+**Chat shows "LLM request failed"**
+The message includes the underlying error. Check that the model is pulled (`ollama pull qwen2.5-coder`) and that `OPENAI_BASE_URL` / `OPENAI_MODEL_NAME` in `.env` are right. Slow local models: raise `LLM_TIMEOUT` (seconds, default 300).
 
 **Frontend connection error**
 Ensure the backend is up at `http://localhost:8000`.
+
+## ⚙️ Optional Settings
+
+Set in `.env` (see `.env.example`):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LLM_TIMEOUT` | `300` | Seconds to wait for each LLM call |
+| `RENDER_TIMEOUT` | `600` | Seconds allowed for one Manim run |
+| `JOB_TIMEOUT` | `1800` | Max seconds for a whole job (LLM + renders + repairs) |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend URL the browser calls |
+| `CORS_ORIGINS` | `*` | Comma-separated allowed origins |
+
+## 🧪 Backend Tests
+
+The backend tests need no Docker, Redis, Manim or LLM (they use an in-memory Redis and a stand-in `manim`):
+
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt   # installs manim too; to skip it: pip install fastapi uvicorn redis "rq>=2" openai pytest fakeredis httpx
+pytest
+```

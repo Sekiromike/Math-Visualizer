@@ -1,0 +1,21 @@
+# env / secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# generated renders (served from backend/static)
+backend/static/
+
+# node / next
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# misc
+.DS_Store
